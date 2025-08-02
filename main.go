@@ -34,21 +34,23 @@ func main() {
 	}
 	backgroundColor := rgb(151, 255, 255)
 	const (
-		windowW, windowH      = 1500, 800
-		deadFrame             = "rsc/dead.png"
-		bumpFrame             = "rsc/bump.png"
-		pipeImage             = "rsc/pipe.png"
-		cloudImage            = "rsc/cloud.png"
-		gravity               = 0.5
-		gapHeight             = 300
-		gapDistX              = 600
-		gopherX               = 100
-		gopherCollisionRadius = 50
-		clickYSpeed           = -14.0
-		minVisiblePipeHeight  = 80
-		musicFile             = "rsc/music.wav"
-		musicLengthInSeconds  = 2.0
-		pipeShakeFrameCount   = 40
+		windowW, windowH          = 1500, 800
+		deadFrame                 = "rsc/dead.png"
+		bumpFrame                 = "rsc/bump.png"
+		pipeImage                 = "rsc/pipe.png"
+		cloudImage                = "rsc/cloud.png"
+		gravity                   = 0.5
+		gapHeight                 = 300
+		gapDistX                  = 600
+		gopherX                   = 100
+		gopherCollisionRadius     = 50
+		clickYSpeed               = -14.0
+		minVisiblePipeHeight      = 80
+		pipeShakeFrameCount       = 40
+		musicIntroFile            = "rsc/music_intro.wav"
+		musicIntroLengthInSeconds = 6
+		musicLoopFile             = "rsc/music_loop.wav"
+		musicLoopLengthInSeconds  = 14
 	)
 
 	var (
@@ -71,7 +73,6 @@ func main() {
 		needToPlayFlapSound bool
 		flapSoundCoolDown   int
 		playDeathSoundIn    int
-		lastMusicStartTime  time.Time
 		bumpOnHead          bool
 		clouds              [6]cloud
 	)
@@ -158,6 +159,8 @@ func main() {
 	}
 
 	imagesAreLoaded := false
+	var nextMusicStart time.Time
+
 	draw.RunWindow("Flappy Go", windowW, windowH, func(window draw.Window) {
 		window.SetIcon("rsc/icon.png") // TODO Check the prototype/draw ports: this must only happen once.
 
@@ -174,11 +177,15 @@ func main() {
 		}
 		window.BlurImages(true)
 
+		if nextMusicStart.IsZero() {
+			window.PlaySoundFile(musicIntroFile)
+			nextMusicStart = time.Now().Add(seconds(musicIntroLengthInSeconds))
+		}
+
 		now := time.Now()
-		dt := now.Sub(lastMusicStartTime)
-		if dt.Seconds() >= musicLengthInSeconds {
-			window.PlaySoundFile(musicFile)
-			lastMusicStartTime = now
+		if now.Equal(nextMusicStart) || now.After(nextMusicStart) {
+			window.PlaySoundFile(musicLoopFile)
+			nextMusicStart = now.Add(seconds(musicLoopLengthInSeconds))
 		}
 
 		pipeW, pipeH, _ := window.ImageSize(pipeImage)
@@ -504,6 +511,10 @@ func rgba(r, g, b, a int) draw.Color {
 		float32(b)/255,
 		float32(a)/255,
 	)
+}
+
+func seconds(s float64) time.Duration {
+	return time.Duration(round(s * float64(time.Second)))
 }
 
 func round(x float64) int {
