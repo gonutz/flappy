@@ -1,8 +1,5 @@
 package main
 
-// TODO Sounds:
-// - background music
-
 import (
 	"embed"
 	"fmt"
@@ -162,7 +159,7 @@ func main() {
 	var nextMusicStart time.Time
 
 	draw.RunWindow("Flappy Go", windowW, windowH, func(window draw.Window) {
-		window.SetIcon("rsc/icon.png") // TODO Check the prototype/draw ports: this must only happen once.
+		window.SetIcon("rsc/icon.png")
 
 		if !imagesAreLoaded {
 			imagesAreLoaded = preloadImage(window)
