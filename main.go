@@ -3,10 +3,6 @@ package main
 // TODO Sounds:
 // - background music
 
-// TODO In other libs:
-// Have a way to get a sound file length in the prototype/draw library.
-// Add reproducible way to generate .syso file from PNG icon.
-
 import (
 	"embed"
 	"fmt"
