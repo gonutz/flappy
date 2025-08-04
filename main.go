@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"slices"
 	"time"
 
 	"github.com/gonutz/prototype/draw"
@@ -25,34 +26,48 @@ func main() {
 		"rsc/arms_center.png",
 		"rsc/arms_down.png",
 	}
+	// At most one item from each accessory group is picked.
+	accessoryGroups := [][]string{
+		{"hat"},
+		{"tie", "bowtie", "shirt"},
+		{"round_glasses", "square_glasses", "sunglasses"},
+		{"earring"},
+	}
 	backgroundImages := []string{
 		"rsc/city0.png",
 		"rsc/city1.png",
 	}
 	backgroundColor := rgb(151, 255, 255)
 	const (
-		windowW, windowH          = 1500, 800
-		deadFrame                 = "rsc/dead.png"
-		bumpFrame                 = "rsc/bump.png"
-		pipeImage                 = "rsc/pipe.png"
-		cloudImage                = "rsc/cloud.png"
-		gravity                   = 0.5
-		gapHeight                 = 300
-		gapDistX                  = 600
-		gopherX                   = 100
-		gopherCollisionRadius     = 50
-		clickYSpeed               = -14.0
-		minVisiblePipeHeight      = 80
-		pipeShakeFrameCount       = 40
-		musicIntroFile            = "rsc/music_intro.wav"
-		musicIntroLengthInSeconds = 6
-		musicLoopFile             = "rsc/music_loop.wav"
-		musicLoopLengthInSeconds  = 14
+		windowW, windowH           = 1500, 800
+		tailDownImage              = "rsc/tail_down.png"
+		tailCenterImage            = "rsc/tail_center.png"
+		tailUpImage                = "rsc/tail_up.png"
+		deadFrame                  = "rsc/dead.png"
+		bumpFrame                  = "rsc/bump.png"
+		pipeImage                  = "rsc/pipe.png"
+		cloudImage                 = "rsc/cloud.png"
+		gopherSpeed                = 5
+		gravity                    = 0.5
+		gapHeight                  = 300
+		firstGapX                  = 1300
+		gapDistX                   = 600
+		finalGopherX               = 100
+		gopherCollisionRadius      = 50
+		clickYSpeed                = -14.0
+		minVisiblePipeHeight       = 80
+		pipeShakeFrameCount        = 40
+		musicIntroFile             = "rsc/music_intro.wav"
+		musicIntroLengthInSeconds  = 6
+		musicLoopFile              = "rsc/music_loop.wav"
+		musicLoopLengthInSeconds   = 14
+		deceasedTextFadeFrameCount = 60
 	)
 
 	var (
 		animationIndex      int
 		nextFlapIn          int
+		gopherXOffset       int
 		x                   float64
 		y                   float64
 		xSpeed              float64
@@ -72,6 +87,13 @@ func main() {
 		playDeathSoundIn    int
 		bumpOnHead          bool
 		clouds              [6]cloud
+		accessories         []string
+		killHistory         []kill
+		wasRestartable      bool
+		name                string
+		nameAlpha           float32
+		nameAnimationTime   int
+		deceasedTextTime    int
 	)
 
 	randomGapY := func() int {
@@ -95,17 +117,24 @@ func main() {
 		return minY + rand.Intn(maxY-minY)
 	}
 
+	randomName := func() string {
+		// TODO Use up all names before repeating a name.
+		i := rand.Intn(len(nameList))
+		return nameList[i]
+	}
+
 	restart := func() {
 		animationIndex = 0
 		nextFlapIn = 0
+		gopherXOffset = -finalGopherX - 150
 		x = 0.0
 		y = 400.0
-		xSpeed = 5.0
+		xSpeed = 0.0
 		ySpeed = clickYSpeed
 		rotation = 0.0
 		targetRotation = 0.0
 		isAlive = true
-		nextGapX = 1000
+		nextGapX = firstGapX
 		for i := range gaps {
 			gaps[i] = gap{}
 			gaps[i].centerX = nextGapX
@@ -125,6 +154,24 @@ func main() {
 			clouds[i].x = float64(-350 + rand.Intn(windowW+350))
 			clouds[i].y = randomCloudY()
 		}
+
+		lastAccessories := slices.Clone(accessories)
+		for slices.Equal(lastAccessories, accessories) {
+			accessories = accessories[:0]
+			accessoryChance := 0.33
+			for _, group := range accessoryGroups {
+				if rand.Float64() < accessoryChance {
+					i := rand.Intn(len(group))
+					a := "rsc/" + group[i] + ".png"
+					accessories = append(accessories, a)
+				}
+			}
+		}
+		wasRestartable = false
+		name = randomName()
+		nameAlpha = 1.0
+		nameAnimationTime = 0
+		deceasedTextTime = deceasedTextFadeFrameCount
 	}
 	restart()
 
@@ -189,6 +236,14 @@ func main() {
 
 		restartable := y > 3*windowH
 
+		if restartable != wasRestartable {
+			killHistory = append(killHistory, kill{
+				score:       score,
+				accessories: slices.Clone(accessories),
+			})
+			wasRestartable = restartable
+		}
+
 		// Update game state.
 		clicked := len(window.Clicks()) > 0 ||
 			len(window.Characters()) > 0 ||
@@ -228,9 +283,23 @@ func main() {
 			animationIndex = (animationIndex + 1) % len(animationFrames)
 		}
 
+		if gopherXOffset < finalGopherX {
+			// Slide in the gopher into the screen.
+			gopherXOffset = min(gopherXOffset+gopherSpeed, finalGopherX)
+
+			if gopherXOffset == finalGopherX {
+				xSpeed = gopherSpeed
+			}
+		}
+
+		if gopherXOffset == finalGopherX {
+			nameAlpha = max(nameAlpha-0.33/60.0, 0)
+		}
+
 		if !isAlive && xSpeed > 0 {
 			xSpeed = max(0, xSpeed-0.15)
 		}
+
 		x += xSpeed
 		for i := range gaps {
 			if gaps[i].centerX-round(x) < -pipeW/2 {
@@ -274,7 +343,7 @@ func main() {
 		gopherCollisionCircle := func() circle {
 			gopherW, gopherH, _ := window.ImageSize(animationFrames[0])
 			return circle{
-				centerX: gopherX + gopherW/2,
+				centerX: gopherXOffset + finalGopherX + gopherW/2,
 				centerY: round(y) + gopherH/2,
 				radius:  gopherCollisionRadius,
 			}
@@ -370,7 +439,14 @@ func main() {
 			}
 		}
 
+		nameAnimationTime++
+
+		if !isAlive && deceasedTextTime > 0 {
+			deceasedTextTime--
+		}
+
 		// Draw game.
+
 		window.FillRect(0, 0, 9999, 9999, backgroundColor)
 
 		for _, cloud := range clouds {
@@ -413,14 +489,48 @@ func main() {
 			window.DrawImageFileRotated(pipeImage, gapX, topY, 180+topRotation)
 		}
 
+		// Render the gopher.
+		gopherImage := deadFrame
 		if isAlive {
-			window.DrawImageFileRotated(animationFrames[animationIndex], gopherX, round(y), round(rotation))
-		} else {
-			image := deadFrame
-			if bumpOnHead {
-				image = bumpFrame
-			}
-			window.DrawImageFileRotated(image, gopherX, round(y), round(rotation))
+			gopherImage = animationFrames[animationIndex]
+		} else if bumpOnHead {
+			gopherImage = bumpFrame
+		}
+
+		tail := tailCenterImage
+		if ySpeed > 7 {
+			tail = tailUpImage
+		}
+		if ySpeed < -7 {
+			tail = tailDownImage
+		}
+		if !isAlive {
+			tail = tailDownImage
+		}
+
+		gopherX, gopherY := gopherXOffset+finalGopherX, round(y)
+		gopherRotation := round(rotation)
+		window.DrawImageFileRotated(gopherImage, gopherX, gopherY, gopherRotation)
+		window.DrawImageFileRotated(tail, gopherX, gopherY, gopherRotation)
+		for _, a := range accessories {
+			window.DrawImageFileRotated(a, gopherX, gopherY, gopherRotation)
+		}
+
+		// Render the animated name above the gopher's head.
+		gopherW, _, _ := window.ImageSize(gopherImage)
+		const headNameScale = 4
+		headNameW, headNameH := window.GetScaledTextSize(name, headNameScale)
+		headNameX := gopherXOffset + finalGopherX + gopherW/2 - headNameW/2
+		headNameY := gopherY - headNameH
+		runeW, _ := window.GetScaledTextSize("x", headNameScale)
+		runeX := headNameX
+		runeI := 0
+		for _, r := range name {
+			yOffset := (math.Sin(0.5*float64(runeI)+0.075*float64(nameAnimationTime)) + 1) / 2
+			runeY := headNameY - round(yOffset*0.75*float64(headNameH))
+			window.DrawScaledText(string(r), runeX, runeY, headNameScale, draw.RGBA(0, 0, 0, nameAlpha))
+			runeX += runeW
+			runeI++
 		}
 
 		const (
@@ -437,11 +547,90 @@ func main() {
 		scoreX := (windowW - scoreW) / 2
 		window.DrawScaledText(scoreText, scoreX, 0, scoreScale, draw.Black)
 
+		textBackgroundColor := backgroundColor
+		textBackgroundColor.A = 0.6
+		const textBorderSize = 5
+
 		const highscoreScale = 4
-		highscoreText := fmt.Sprintf("Highscore %d ", highscore)
-		highscoreW, _ := window.GetScaledTextSize(highscoreText, highscoreScale)
+		highscoreText := fmt.Sprintf(" Highscore %d ", highscore)
+		highscoreW, highscoreH := window.GetScaledTextSize(highscoreText, highscoreScale)
 		highscoreX := windowW - highscoreW
-		window.DrawScaledText(highscoreText, highscoreX, 0, highscoreScale, draw.Black)
+		highscoreYMargin := 10
+		highscoreY := highscoreYMargin
+		highscoreBottom := highscoreY + highscoreH + highscoreYMargin
+		// Fill the text background.
+		window.FillRect(highscoreX, 0, 9999, highscoreBottom, textBackgroundColor)
+		// Create a fuzzy border around the text background.
+		textBorderColor := textBackgroundColor
+		for i := range textBorderSize - 1 {
+			textBorderColor.A -= textBackgroundColor.A / float32(textBorderSize)
+			window.FillRect(highscoreX-1-i, 0, 1, highscoreBottom+i, textBorderColor)
+			window.FillRect(highscoreX-1-i, highscoreBottom+i, 9999, 1, textBorderColor)
+		}
+		// Draw the text on top of the background.
+		window.DrawScaledText(highscoreText, highscoreX, highscoreY, highscoreScale, draw.Black)
+
+		// We now draw the gopher name and the kill count in the bottom right
+		// hand corner. We want to surround both of these with a single text
+		// background rectangle. That is why we do the text size and position
+		// calculations first, then draw the background, then draw the texts on
+		// top of it.
+		const killTextYMargin = 10
+		const killScale = 2
+		killSuffix := "s"
+		if len(killHistory) == 1 {
+			killSuffix = ""
+		}
+		killText := fmt.Sprintf(" %d dead gopher%s so far ", len(killHistory), killSuffix)
+		killW, killH := window.GetScaledTextSize(killText, killScale)
+		killX := windowW - killW
+		killY := windowH - killH - killTextYMargin
+
+		// Render the name above the kill count.
+		// We blend the text "now playing ..." and "recently deceased ..." when
+		// the gopher goes from alive to dead. That is why we render both texts
+		// always, but with a different opacity.
+		const nameScale = 2
+		playingTextAlpha := float32(deceasedTextTime) / deceasedTextFadeFrameCount
+
+		aliveNameText := " now playing: " + name + " "
+		aliveNameW, aliveNameH := window.GetScaledTextSize(aliveNameText, nameScale)
+		aliveNameX := windowW - aliveNameW
+		aliveNameY := killY - aliveNameH
+		aliveNameAlpha := (1 - nameAlpha) * playingTextAlpha
+
+		deadNameText := " recently deceased: " + name + " "
+		deadNameW, deadNameH := window.GetScaledTextSize(deadNameText, nameScale)
+		deadNameX := windowW - deadNameW
+		deadNameY := killY - deadNameH
+		deadNameAlpha := (1 - nameAlpha) * (1 - playingTextAlpha)
+
+		// Create the text background.
+		backX := killX
+		if aliveNameAlpha > 0 && aliveNameX < backX {
+			backX = aliveNameX
+		}
+		if deadNameAlpha > 0 && deadNameX < backX {
+			backX = deadNameX
+		}
+		backY := killY - killTextYMargin
+		if aliveNameAlpha > 0 || deadNameAlpha > 0 {
+			backY = deadNameY - killTextYMargin
+		}
+		// Fill the text background.
+		window.FillRect(backX, backY, 9999, 9999, textBackgroundColor)
+		// Create a fuzzy border around the text background.
+		textBorderColor = textBackgroundColor
+		for i := range textBorderSize - 1 {
+			textBorderColor.A -= textBackgroundColor.A / float32(textBorderSize)
+			window.FillRect(backX-1-i, backY-i, 1, 9999, textBorderColor)
+			window.FillRect(backX-1-i, backY-1-i, 9999, 1, textBorderColor)
+		}
+
+		// Write the texts on top of the background.
+		window.DrawScaledText(aliveNameText, aliveNameX, aliveNameY, nameScale, draw.RGBA(0, 0, 0, aliveNameAlpha))
+		window.DrawScaledText(deadNameText, deadNameX, deadNameY, nameScale, draw.RGBA(0, 0, 0, deadNameAlpha))
+		window.DrawScaledText(killText, killX, killY, killScale, draw.RGB(0.7, 0, 0))
 
 		if restartable {
 			const text = "Click to Restart"
@@ -486,6 +675,12 @@ type cloud struct {
 	scale float64
 	x     float64
 	y     int
+}
+
+type kill struct {
+	name        string
+	score       int
+	accessories []string
 }
 
 func collides(c circle, r rectangle) bool {
