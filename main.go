@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gonutz/prototype/draw"
@@ -188,16 +189,13 @@ func main() {
 			}
 		}
 
-		for _, img := range animationFrames {
-			preload(img)
+		files, _ := rsc.ReadDir("rsc")
+		for _, file := range files {
+			path := "rsc/" + file.Name()
+			if strings.HasSuffix(path, ".png") {
+				preload(path)
+			}
 		}
-		for _, img := range backgroundImages {
-			preload(img)
-		}
-		preload(deadFrame)
-		preload(bumpFrame)
-		preload(pipeImage)
-		preload(cloudImage)
 
 		return preloaded
 	}
