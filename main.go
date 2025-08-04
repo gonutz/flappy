@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"io"
 	"math"
 	"math/rand"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,13 +92,18 @@ func main() {
 		bumpOnHead          bool
 		clouds              [6]cloud
 		accessories         []string
-		killHistory         []kill
-		wasRestartable      bool
-		name                string
-		nameAlpha           float32
-		nameAnimationTime   int
-		deceasedTextTime    int
-		hideCursorInFrames  int
+		// killCount is not always the same as len(killHistory). When we kill
+		// the latest gopher, we add it to the killHistory right away, but we
+		// wait for the restart screen until we update the kill count in the
+		// bottom right hand corner.
+		killCount          int
+		killHistory        []kill
+		wasRestartable     bool
+		name               string
+		nameAlpha          float32
+		nameAnimationTime  int
+		deceasedTextTime   int
+		hideCursorInFrames int
 	)
 
 	randomGapY := func() int {
@@ -148,7 +155,12 @@ func main() {
 		scoreAnimationTime = 0.0
 		restartableTime = 0
 		backgroundTiles = backgroundTiles[:0]
-		highscore = loadHighscore()
+		killHistory = loadKillHistory()
+		killCount = len(killHistory)
+		highscore = 0
+		for _, k := range killHistory {
+			highscore = max(highscore, k.Score)
+		}
 		needToPlayFlapSound = true
 		playDeathSoundIn = 0
 		bumpOnHead = false
@@ -165,8 +177,7 @@ func main() {
 			for _, group := range accessoryGroups {
 				if rand.Float64() < accessoryChance {
 					i := rand.Intn(len(group))
-					a := "rsc/" + group[i] + ".png"
-					accessories = append(accessories, a)
+					accessories = append(accessories, group[i])
 				}
 			}
 		}
@@ -239,10 +250,7 @@ func main() {
 		restartable := y > 3*windowH
 
 		if restartable != wasRestartable {
-			killHistory = append(killHistory, kill{
-				score:       score,
-				accessories: slices.Clone(accessories),
-			})
+			killCount++
 			wasRestartable = restartable
 		}
 
@@ -328,7 +336,6 @@ func main() {
 
 				if score > highscore {
 					highscore = score
-					saveHighscore(highscore)
 				}
 
 				scoreAnimationTime = 1.0
@@ -336,6 +343,8 @@ func main() {
 		}
 		y += ySpeed
 		ySpeed += gravity
+
+		wasAlive := isAlive
 
 		if isAlive && y <= -30 {
 			// Drop dead on hitting the ceiling.
@@ -409,6 +418,15 @@ func main() {
 		playDeathSoundIn--
 		if playDeathSoundIn == 0 {
 			window.PlaySoundFile("rsc/death.wav")
+		}
+
+		if wasAlive && !isAlive {
+			killHistory = append(killHistory, kill{
+				Name:        name,
+				Score:       score,
+				Accessories: slices.Clone(accessories),
+			})
+			saveKillHistory(killHistory)
 		}
 
 		targetRotation = ySpeed * 1.5
@@ -528,7 +546,8 @@ func main() {
 		window.DrawImageFileRotated(gopherImage, gopherX, gopherY, gopherRotation)
 		window.DrawImageFileRotated(tail, gopherX, gopherY, gopherRotation)
 		for _, a := range accessories {
-			window.DrawImageFileRotated(a, gopherX, gopherY, gopherRotation)
+			img := "rsc/" + a + ".png"
+			window.DrawImageFileRotated(img, gopherX, gopherY, gopherRotation)
 		}
 
 		// Render the animated name above the gopher's head.
@@ -593,10 +612,10 @@ func main() {
 		const killTextYMargin = 10
 		const killScale = 2
 		killSuffix := "s"
-		if len(killHistory) == 1 {
+		if killCount == 1 {
 			killSuffix = ""
 		}
-		killText := fmt.Sprintf(" %d dead gopher%s so far ", len(killHistory), killSuffix)
+		killText := fmt.Sprintf(" %d dead gopher%s so far ", killCount, killSuffix)
 		killW, killH := window.GetScaledTextSize(killText, killScale)
 		killX := windowW - killW
 		killY := windowH - killH - killTextYMargin
@@ -693,9 +712,42 @@ type cloud struct {
 }
 
 type kill struct {
-	name        string
-	score       int
-	accessories []string
+	Name        string
+	Score       int
+	Accessories []string
+}
+
+func killsToBytes(kills []kill) []byte {
+	var buf bytes.Buffer
+	for _, k := range kills {
+		buf.WriteString(k.Name)
+		buf.WriteString(" ")
+		buf.WriteString(strconv.Itoa(k.Score))
+		for _, a := range k.Accessories {
+			buf.WriteString(" ")
+			buf.WriteString(a)
+		}
+		buf.WriteString("\n")
+	}
+	return buf.Bytes()
+}
+
+func bytesToKills(data []byte) []kill {
+	var kills []kill
+	for line := range strings.SplitSeq(string(data), "\n") {
+		cols := strings.Split(line, " ")
+		if len(cols) >= 2 {
+			name := cols[0]
+			score, _ := strconv.Atoi(cols[1])
+			accessories := cols[2:]
+			kills = append(kills, kill{
+				Name:        name,
+				Score:       score,
+				Accessories: accessories,
+			})
+		}
+	}
+	return kills
 }
 
 func collides(c circle, r rectangle) bool {
