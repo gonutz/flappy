@@ -63,6 +63,7 @@ func main() {
 		musicLoopFile              = "rsc/music_loop.wav"
 		musicLoopLengthInSeconds   = 14
 		deceasedTextFadeFrameCount = 60
+		cursorHideTimeout          = 120
 	)
 
 	var (
@@ -95,6 +96,7 @@ func main() {
 		nameAlpha           float32
 		nameAnimationTime   int
 		deceasedTextTime    int
+		hideCursorInFrames  int
 	)
 
 	randomGapY := func() int {
@@ -173,6 +175,7 @@ func main() {
 		nameAlpha = 1.0
 		nameAnimationTime = 0
 		deceasedTextTime = deceasedTextFadeFrameCount
+		hideCursorInFrames = cursorHideTimeout
 	}
 	restart()
 
@@ -202,6 +205,7 @@ func main() {
 
 	imagesAreLoaded := false
 	var nextMusicStart time.Time
+	var lastMouseX, lastMouseY int
 
 	draw.RunWindow("Flappy Go", windowW, windowH, func(window draw.Window) {
 		window.SetIcon("rsc/icon.png")
@@ -243,11 +247,24 @@ func main() {
 		}
 
 		// Update game state.
-		clicked := len(window.Clicks()) > 0 ||
+		clickedWithMouse := len(window.Clicks()) > 0
+		clicked := clickedWithMouse ||
 			len(window.Characters()) > 0 ||
 			window.WasKeyPressed(draw.KeyUp) ||
 			window.WasKeyPressed(draw.KeyEnter) ||
 			window.WasKeyPressed(draw.KeyNumEnter)
+
+		if isAlive {
+			hideCursorInFrames--
+		}
+		mouseX, mouseY := window.MousePosition()
+		if clickedWithMouse ||
+			mouseX != lastMouseX || mouseY != lastMouseY {
+			hideCursorInFrames = cursorHideTimeout
+		}
+		lastMouseX, lastMouseY = mouseX, mouseY
+
+		window.ShowCursor(hideCursorInFrames > 0)
 
 		if restartable && clicked {
 			restart()
