@@ -2,7 +2,7 @@ module flappy
 
 go 1.24.5
 
-require github.com/gonutz/prototype v1.9.1
+require github.com/gonutz/prototype v1.9.2
 
 require (
 	github.com/gonutz/d3d9 v1.2.4 // indirect
