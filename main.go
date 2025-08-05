@@ -129,10 +129,33 @@ func main() {
 		return minY + rand.Intn(maxY-minY)
 	}
 
+	// We have a fixed number of names. We use up all names first, then
+	// re-shuffle the list and re-use names. This might happen many times.
+	// For each new deck of names we shuffle deterministically using seed 1 for
+	// the first shuffle, seed 2 for the second, seed 3 for the third and so on.
+	// This way we always know which name comes at which position and we can
+	// re-create this scheme between two runs of the program by simply looking
+	// at how many names are in the kill history.
+	// This scheme relies on two things:
+	// 1. The random number generation being the same, which is promised by Go.
+	// 2. The names being the same which might not be true. Whenever we add a
+	//    name we change the random name generation. This is still good enough for
+	//    a Flappy Bird clone :-)
+	var restNames []string
 	randomName := func() string {
-		// TODO Use up all names before repeating a name.
-		i := rand.Intn(len(nameList))
-		return nameList[i]
+		if len(restNames) == 0 {
+			restNames = slices.Clone(nameList)
+			seed := len(killHistory) / len(nameList)
+			rng := rand.New(rand.NewSource(int64(seed)))
+			shuffleStrings(rng, restNames)
+
+			used := len(killHistory) % len(nameList)
+			restNames = restNames[used:]
+		}
+
+		name := restNames[0]
+		restNames = restNames[1:]
+		return name
 	}
 
 	restart := func() {
@@ -695,7 +718,7 @@ func main() {
 				"Our dear friend %s passed after %d pipe%s",
 				"%s passed quietly after %d pipe%s",
 				"In loving memory of %s who cleared %d pipe%s",
-				"%s died after %d pipe%s well cleared",
+				"Dear %s died after %d cleared pipe%s",
 			}
 
 			const textScale = 2.5
@@ -887,6 +910,16 @@ func collides(c circle, r rectangle) bool {
 	dy := closestY - c.centerY
 	squareDist := dx*dx + dy*dy
 	return squareDist <= c.radius*c.radius
+}
+
+func shuffleStrings(rand *rand.Rand, list []string) {
+	n := len(list)
+	for i := range n - 1 {
+		j := i + rand.Intn(n-i)
+		if i != j {
+			list[i], list[j] = list[j], list[i]
+		}
+	}
 }
 
 func rgb(r, g, b int) draw.Color {
