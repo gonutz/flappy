@@ -4,6 +4,8 @@ Flappy Gopher game that runs on Windows, Mac, Linux and in the browser.
 
 It uses the [prototype/draw library](https://github.com/gonutz/prototype).
 
+![Screenshot](/screenshot.png)
+
 
 ## Build and Run
 
