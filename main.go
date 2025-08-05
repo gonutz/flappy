@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gonutz/prototype/draw"
 )
@@ -104,6 +105,7 @@ func main() {
 		nameAnimationTime  int
 		deceasedTextTime   int
 		hideCursorInFrames int
+		killScrollY        int
 	)
 
 	randomGapY := func() int {
@@ -187,6 +189,7 @@ func main() {
 		nameAnimationTime = 0
 		deceasedTextTime = deceasedTextFadeFrameCount
 		hideCursorInFrames = cursorHideTimeout
+		killScrollY = 0
 	}
 	restart()
 
@@ -478,6 +481,10 @@ func main() {
 			deceasedTextTime--
 		}
 
+		if restartable {
+			killScrollY--
+		}
+
 		// Draw game.
 
 		window.FillRect(0, 0, 9999, 9999, backgroundColor)
@@ -567,20 +574,6 @@ func main() {
 			runeI++
 		}
 
-		const (
-			regularScoreScale = 7.0
-			maxScoreScale     = 12.0
-		)
-		scoreScale := float32(regularScoreScale)
-		if scoreAnimationTime > 0 {
-			scoreArc := (math.Sin(1.5*math.Pi+2*math.Pi*scoreAnimationTime) + 1) * 0.5
-			scoreScale = float32(regularScoreScale + scoreArc*(maxScoreScale-regularScoreScale))
-		}
-		scoreText := fmt.Sprintf(" %d ", score)
-		scoreW, _ := window.GetScaledTextSize(scoreText, scoreScale)
-		scoreX := (windowW - scoreW) / 2
-		window.DrawScaledText(scoreText, scoreX, 0, scoreScale, draw.Black)
-
 		textBackgroundColor := backgroundColor
 		textBackgroundColor.A = 0.6
 		const textBorderSize = 5
@@ -666,14 +659,151 @@ func main() {
 		window.DrawScaledText(deadNameText, deadNameX, deadNameY, nameScale, draw.RGBA(0, 0, 0, deadNameAlpha))
 		window.DrawScaledText(killText, killX, killY, killScale, draw.RGB(0.7, 0, 0))
 
+		const (
+			regularScoreScale = 7.0
+			maxScoreScale     = 12.0
+		)
+		scoreScale := float32(regularScoreScale)
+		if scoreAnimationTime > 0 {
+			scoreArc := (math.Sin(1.5*math.Pi+2*math.Pi*scoreAnimationTime) + 1) * 0.5
+			scoreScale = float32(regularScoreScale + scoreArc*(maxScoreScale-regularScoreScale))
+		}
+		scoreText := fmt.Sprintf(" %d ", score)
+		scoreW, _ := window.GetScaledTextSize(scoreText, scoreScale)
+		scoreX := (windowW - scoreW) / 2
+		window.DrawScaledText(scoreText, scoreX, 0, scoreScale, draw.Black)
+
 		if restartable {
+			// Draw the restart instructions.
 			const text = "Click to Restart"
-			textScale := 5 + float32(math.Sin(float64(restartableTime)*0.1))
+			restartScale := 5 + float32(math.Sin(float64(restartableTime)*0.1))
 			restartableTime++
-			textW, textH := window.GetScaledTextSize(text, textScale)
+			textW, textH := window.GetScaledTextSize(text, restartScale)
 			textX := (windowW - textW) / 2
 			textY := (windowH - textH) / 2
-			window.DrawScaledText(text, textX, textY, textScale, draw.Black)
+			window.DrawScaledText(text, textX, textY, restartScale, draw.Black)
+
+			// Draw the kill history.
+			longestNameCharCount := 0
+			for _, k := range killHistory {
+				longestNameCharCount = max(longestNameCharCount, utf8.RuneCountInString(k.Name))
+			}
+
+			eulogies := []string{
+				"Our beloved %s passed after %d pipe%s",
+				"%s left us peacefully after %d pipe%s",
+				"Our dear friend %s passed after %d pipe%s",
+				"%s passed quietly after %d pipe%s",
+				"In loving memory of %s who cleared %d pipe%s",
+				"%s died after %d pipe%s well cleared",
+			}
+
+			const textScale = 2.5
+
+			longestEulogyW := 0
+			for _, e := range eulogies {
+				text := fmt.Sprintf(e, strings.Repeat("A", longestNameCharCount), highscore, "s")
+				textW, _ := window.GetScaledTextSize(text, textScale)
+				longestEulogyW = max(longestEulogyW, textW)
+			}
+
+			gopherW, gopherH, _ := window.ImageSize(deadFrame)
+			const gopherScale = 0.33
+			gopherW = round(float64(gopherW) * gopherScale)
+			gopherH = round(float64(gopherH) * gopherScale)
+
+			backgroundW := 4*gopherW + longestEulogyW
+
+			alphaAtY := func(y int) float32 {
+				dy := abs(windowH/2 - y)
+				alpha := float32(dy-40) / 90
+				return max(0.1, min(0.95, alpha))
+			}
+
+			y := windowH + 280 + killScrollY
+
+			const captionScale = nameScale * 2
+
+			writeCaption := func(caption string, top, bottom int) {
+				captionW, captionH := window.GetScaledTextSize(caption, captionScale)
+				captionY := (top + bottom - captionH) / 2
+				captionAlpha := alphaAtY(captionY + captionH/2)
+				topAlpha := alphaAtY(top)
+				bottomAlpha := alphaAtY(bottom)
+				if topAlpha == bottomAlpha {
+					window.FillRect((windowW-backgroundW)/2, top, backgroundW, bottom-top+1, draw.RGBA(1, 1, 1, topAlpha))
+				} else {
+					for y := top; y <= bottom; y++ {
+						a := alphaAtY(y)
+						window.FillRect((windowW-backgroundW)/2, y, backgroundW, 1, draw.RGBA(1, 1, 1, a))
+					}
+				}
+				window.DrawScaledText(caption, (windowW-captionW)/2, captionY, captionScale, draw.RGBA(0.5, 0, 0, captionAlpha))
+			}
+
+			const captionHeight = 150
+
+			caption := "In Honor of our Hero"
+			if len(killHistory) != 1 {
+				caption += "s"
+			}
+			writeCaption(caption, y-captionHeight, y-1)
+
+			for i := len(killHistory) - 1; i >= 0; i-- {
+				if -gopherH < y && y < windowH {
+					kill := killHistory[i]
+
+					lineCenterY := y + gopherH/2
+
+					alpha := alphaAtY(lineCenterY)
+
+					top := y
+					bottom := y + gopherH - 1
+					topAlpha := alphaAtY(top)
+					bottomAlpha := alphaAtY(bottom)
+
+					if topAlpha == bottomAlpha {
+						window.FillRect((windowW-backgroundW)/2, y, backgroundW, gopherH, draw.RGBA(1, 1, 1, alpha))
+					} else {
+						for y := top; y <= bottom; y++ {
+							a := alphaAtY(y)
+							window.FillRect((windowW-backgroundW)/2, y, backgroundW, 1, draw.RGBA(1, 1, 1, a))
+						}
+					}
+
+					pluralS := "s"
+					if kill.Score == 1 {
+						pluralS = ""
+					}
+					text := fmt.Sprintf(eulogies[i%len(eulogies)], kill.Name, kill.Score, pluralS)
+
+					textW, textH := window.GetScaledTextSize(text, textScale)
+					textOffsetY := (gopherH - textH) / 2
+
+					leftX := (windowW - 2*gopherW - textW) / 2
+
+					drawGopherAtX := func(x, xScale int) {
+						window.DrawImageFileTo(deadFrame, x, y, gopherW*xScale, gopherH, 0)
+						for _, a := range kill.Accessories {
+							window.DrawImageFileTo("rsc/"+a+".png", x, y, gopherW*xScale, gopherH, 0)
+						}
+						window.DrawImageFileTo(tailDownImage, x, y, gopherW*xScale, gopherH, 0)
+					}
+
+					drawGopherAtX(leftX, 1)
+
+					// Draw the hero's name.
+					textX := leftX + gopherW*3/2
+					textY := y + textOffsetY
+					window.DrawScaledText(text, textX, textY, textScale, draw.RGBA(0.5, 0, 0, alpha))
+
+					drawGopherAtX(textX+textW+gopherW+gopherW/2, -1)
+				}
+
+				y += gopherH
+			}
+
+			writeCaption("You will be missed", y, y+captionHeight)
 		}
 	})
 }
@@ -781,4 +911,11 @@ func round(x float64) int {
 		return int(x - 0.5)
 	}
 	return int(x + 0.5)
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
