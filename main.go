@@ -764,7 +764,7 @@ func main() {
 				window.DrawScaledText(caption, (windowW-captionW)/2, captionY, captionScale, draw.RGBA(0.5, 0, 0, captionAlpha))
 			}
 
-			const captionHeight = 150
+			const captionHeight = 180
 
 			caption := "In Honor of our Hero"
 			if len(killHistory) != 1 {
@@ -827,7 +827,70 @@ func main() {
 			}
 
 			writeCaption("You will be missed", y, y+captionHeight)
+
+			minGraphY := windowH/2 + 80
+			statisticsY := max(minGraphY, y+captionHeight+1)
+			if len(killHistory) >= 2 && statisticsY < windowH {
+				graphBackColor := draw.RGBA(1, 1, 1, 0.9)
+				graphForeColor := draw.RGBA(0, 0, 0, 0.9)
+				graphX := (windowW - backgroundW) / 2
+				graphY := statisticsY
+				graphW := backgroundW
+				graphH := windowH - 20 - minGraphY
+				const graphMarginTop = 120
+				const graphMarginBottom = 20
+				const graphMarginLeft = 30
+				const graphMarginRight = 30
+				innerGraphH := graphH - graphMarginTop - graphMarginBottom
+				zeroY := graphY + graphH - graphMarginBottom
+				highestX := 0
+				highestY := 0
+				highestName := ""
+
+				leftX := windowW/2 - 10*len(killHistory)
+				rightX := windowW/2 + 10*len(killHistory)
+				leftX = max(leftX, graphX+graphMarginLeft+1)
+				rightX = min(rightX, graphX+graphW-graphMarginRight-1)
+
+				window.FillRect(graphX, graphY, graphW, graphH, graphBackColor)
+
+				const captionScale = 2.5
+				caption := "Pipe Smoking Statistics"
+				captionW, _ := window.GetScaledTextSize(caption, captionScale)
+				captionX := graphX + (graphW-captionW)/2
+				captionY := graphY + 5
+				window.DrawScaledText(caption, captionX, captionY, captionScale, graphForeColor)
+
+				for i, k := range killHistory {
+					x := leftX + round(float64(i)/float64(len(killHistory)-1)*float64(rightX-leftX-1))
+
+					y := graphY + graphH - graphMarginBottom
+					if highscore > 0 {
+						y -= round(float64(k.Score) * float64(innerGraphH) / float64(highscore))
+					}
+
+					window.FillRect(x-1, y-1, 3, zeroY-y+1, graphForeColor)
+
+					if k.Score == highscore {
+						highestName = k.Name
+						highestX, highestY = x, y
+					}
+				}
+
+				window.FillRect(leftX-1, zeroY, rightX-leftX+2, 1, graphForeColor)
+
+				const textScale = 1.5
+
+				text := fmt.Sprintf("%s cleared %d pipes", highestName, highscore)
+				textW, textH := window.GetScaledTextSize(text, textScale)
+				textX := highestX - textW/2
+				textY := highestY - textH - 10
+				textX = max(textX, graphX+graphMarginLeft)
+				textX = min(textX, graphX+graphW-graphMarginRight-textW)
+				window.DrawScaledText(text, textX, textY, textScale, graphForeColor)
+			}
 		}
+
 	})
 }
 
